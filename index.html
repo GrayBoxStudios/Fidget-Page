@@ -1,245 +1,411 @@
-<?php
-?>
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>PB Rocket Fidget Trainer</title>
+<title>PB Rocket Trainer</title>
 
 <style>
-body {
-    margin: 0;
-    overflow: hidden;
-    background: #111;
-    color: white;
-    font-family: Arial, sans-serif;
-    user-select: none;
+
+body{
+    margin:0;
+    overflow:hidden;
+    background:#0d0d0d;
+    color:white;
+    font-family:Arial,sans-serif;
+    user-select:none;
 }
 
-#hud {
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    font-size: 22px;
-    z-index: 100;
+#hud{
+    position:fixed;
+    top:15px;
+    left:15px;
+    z-index:1000;
+    font-size:24px;
+    text-shadow:0 0 10px white;
 }
 
-.target {
-    position: absolute;
-    width: 70px;
-    height: 70px;
-    border-radius: 50%;
-    cursor: pointer;
+#flash{
+    position:fixed;
+    inset:0;
+    background:white;
+    opacity:0;
+    pointer-events:none;
 }
 
-.red {
-    background: #ff4444;
+.target{
+    position:absolute;
+    width:60px;
+    height:60px;
+    border-radius:50%;
+    pointer-events:none;
 }
 
-.blue {
-    background: #44aaff;
+.red{
+    background:#ff4444;
+    box-shadow:0 0 25px #ff4444;
 }
 
-.hit {
-    animation: pop 0.12s ease-out;
+.blue{
+    background:#44aaff;
+    box-shadow:0 0 25px #44aaff;
 }
 
-@keyframes pop {
-    from { transform: scale(1.3); }
-    to   { transform: scale(1); }
+.floatText{
+    position:absolute;
+    color:white;
+    font-weight:bold;
+    pointer-events:none;
+    text-shadow:0 0 10px white;
+    z-index:999;
 }
+
+#weapon{
+    position:fixed;
+    top:15px;
+    right:15px;
+    font-size:28px;
+}
+
+#streakBig{
+    position:fixed;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    font-size:120px;
+    opacity:0.15;
+    font-weight:bold;
+    pointer-events:none;
+}
+
 </style>
 </head>
 <body>
 
+<div id="flash"></div>
+
 <div id="hud">
-    Score: <span id="score">0</span><br>
-    Streak: <span id="streak">0</span><br>
-    Best: <span id="best">0</span>
+Score: <span id="score">0</span><br>
+Streak: <span id="streak">0</span><br>
+Best: <span id="best">0</span>
 </div>
 
-<div id="target" class="target red"></div>
+<div id="weapon">PB</div>
+
+<div id="streakBig">0</div>
 
 <script>
 
-document.addEventListener("contextmenu", e => e.preventDefault());
+document.addEventListener("contextmenu",e=>e.preventDefault());
 
-let score = 0;
-let streak = 0;
-let best = 0;
+const flash=document.getElementById("flash");
 
-let mouseX = window.innerWidth/2;
-let mouseY = window.innerHeight/2;
+const scoreEl=document.getElementById("score");
+const streakEl=document.getElementById("streak");
+const bestEl=document.getElementById("best");
+const weaponEl=document.getElementById("weapon");
+const streakBig=document.getElementById("streakBig");
 
-let currentTargetType = "red";
+let score=0;
+let streak=0;
+let best=parseInt(localStorage.getItem("best"))||0;
 
-let awaitingPB = false;
-let pbReady = false;
+bestEl.textContent=best;
 
-let awaitingRocket = false;
+let mouseX=window.innerWidth/2;
+let mouseY=window.innerHeight/2;
 
-const target = document.getElementById("target");
+let currentWeapon="pb";
 
-document.addEventListener("mousemove", e => {
-    mouseX = e.clientX;
-    mouseY = e.clientY;
+let pbReady=false;
+
+document.addEventListener("mousemove",e=>{
+    mouseX=e.clientX;
+    mouseY=e.clientY;
 });
 
-function updateHUD() {
-    scoreEl.textContent = score;
-    streakEl.textContent = streak;
-    bestEl.textContent = best;
+document.addEventListener("keydown",e=>{
+
+    let k=e.key.toLowerCase();
+
+    if(k==="r"){
+        currentWeapon="pb";
+        weaponEl.textContent="PB";
+    }
+
+    if(k==="e"){
+        currentWeapon="rocket";
+        weaponEl.textContent="ROCKET";
+    }
+
+});
+
+function updateHud(){
+
+    scoreEl.textContent=score;
+    streakEl.textContent=streak;
+    bestEl.textContent=best;
+    streakBig.textContent=streak;
+
 }
 
-const scoreEl = document.getElementById("score");
-const streakEl = document.getElementById("streak");
-const bestEl = document.getElementById("best");
+function screenShake(power){
 
-function breakStreak() {
-    streak = 0;
-    updateHUD();
+    document.body.animate([
+        {transform:`translate(${power}px,0)`},
+        {transform:`translate(${-power}px,0)`},
+        {transform:`translate(0,0)`}
+    ],{
+        duration:60
+    });
+
 }
 
-function randomNearCursor() {
+function flashScreen(){
 
-    const radius = 180;
+    flash.animate([
+        {opacity:0.25},
+        {opacity:0}
+    ],{
+        duration:80
+    });
 
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.random() * radius;
-
-    let x = mouseX + Math.cos(angle) * dist;
-    let y = mouseY + Math.sin(angle) * dist;
-
-    x = Math.max(50, Math.min(window.innerWidth - 120, x));
-    y = Math.max(50, Math.min(window.innerHeight - 120, y));
-
-    target.style.left = x + "px";
-    target.style.top = y + "px";
 }
 
-function spawnTarget() {
+function breakStreak(){
 
-    currentTargetType =
-        Math.random() > 0.5 ? "red" : "blue";
+    streak=0;
+    updateHud();
 
-    target.className = "target " + currentTargetType;
-
-    randomNearCursor();
-
-    awaitingPB = false;
-    pbReady = false;
-    awaitingRocket = false;
 }
 
-function success() {
+function floatingText(x,y,text){
+
+    let el=document.createElement("div");
+
+    el.className="floatText";
+    el.textContent=text;
+
+    el.style.left=x+"px";
+    el.style.top=y+"px";
+
+    document.body.appendChild(el);
+
+    el.animate([
+        {
+            transform:"translateY(0px)",
+            opacity:1
+        },
+        {
+            transform:"translateY(-40px)",
+            opacity:0
+        }
+    ],{
+        duration:500
+    });
+
+    setTimeout(()=>el.remove(),500);
+
+}
+
+function angleLerp(current,target,t){
+
+    let diff=
+    ((target-current+Math.PI*3)
+    %(Math.PI*2))
+    -Math.PI;
+
+    return current+diff*t;
+
+}
+
+let targets=[];
+
+function createTarget(){
+
+    let div=document.createElement("div");
+
+    let type=Math.random()>0.5?"red":"blue";
+
+    div.className="target "+type;
+
+    document.body.appendChild(div);
+
+    return {
+
+        div,
+
+        type,
+
+        x:Math.random()*window.innerWidth,
+        y:Math.random()*window.innerHeight,
+
+        angle:Math.random()*Math.PI*2,
+        targetAngle:Math.random()*Math.PI*2,
+
+        speed:1.5+Math.random()*1.5
+
+    };
+
+}
+
+for(let i=0;i<5;i++)
+    targets.push(createTarget());
+
+function hitTarget(target){
 
     score++;
     streak++;
 
-    if(streak > best)
-        best = streak;
+    if(streak>best){
 
-    updateHUD();
+        best=streak;
+        localStorage.setItem("best",best);
 
-    target.classList.add("hit");
+    }
 
-    setTimeout(() => {
-        target.classList.remove("hit");
-    }, 100);
+    updateHud();
 
-    spawnTarget();
+    flashScreen();
+
+    screenShake(
+        Math.min(
+            5+(streak*0.15),
+            20
+        )
+    );
+
+    floatingText(
+        target.x,
+        target.y,
+        "+"+streak
+    );
+
+    target.type=Math.random()>0.5?"red":"blue";
+
+    target.div.className=
+        "target "+target.type;
+
+    target.x=Math.random()*window.innerWidth;
+    target.y=Math.random()*window.innerHeight;
+
 }
 
-document.addEventListener("keydown", e => {
+document.addEventListener("mousedown",e=>{
 
-    const key = e.key.toLowerCase();
+    let hit=false;
 
-    if(currentTargetType === "red") {
+    for(let target of targets){
 
-        if(key === "r") {
-            awaitingPB = true;
-            pbReady = false;
-        }
+        let dx=mouseX-target.x;
+        let dy=mouseY-target.y;
 
-    } else {
+        let dist=Math.sqrt(dx*dx+dy*dy);
 
-        if(key === "e") {
-            awaitingRocket = true;
-        }
+        if(dist>35)
+            continue;
 
-    }
-});
+        if(target.type==="red"){
 
-document.addEventListener("mousedown", e => {
-
-    // RED TARGET (PB)
-
-    if(currentTargetType === "red") {
-
-        if(awaitingPB && e.button === 2) {
-            pbReady = true;
-            return;
-        }
-
-        if(pbReady && e.button === 0) {
-
-            const rect = target.getBoundingClientRect();
-
-            if(
-                mouseX >= rect.left &&
-                mouseX <= rect.right &&
-                mouseY >= rect.top &&
-                mouseY <= rect.bottom
-            ) {
-                success();
-            } else {
+            if(currentWeapon!=="pb"){
                 breakStreak();
+                return;
             }
 
-            awaitingPB = false;
-            pbReady = false;
+            if(e.button===2){
 
-            return;
-        }
+                pbReady=true;
+                return;
 
-        if(e.button === 0 || e.button === 2) {
-            breakStreak();
-        }
-    }
-
-    // BLUE TARGET (ROCKET)
-
-    if(currentTargetType === "blue") {
-
-        if(awaitingRocket && e.button === 0) {
-
-            const rect = target.getBoundingClientRect();
-
-            if(
-                mouseX >= rect.left &&
-                mouseX <= rect.right &&
-                mouseY >= rect.top &&
-                mouseY <= rect.bottom
-            ) {
-                success();
-            } else {
-                breakStreak();
             }
 
-            awaitingRocket = false;
+            if(e.button===0 && pbReady){
 
-            return;
+                hit=true;
+                pbReady=false;
+
+                hitTarget(target);
+
+                break;
+
+            }
+
         }
 
-        if(e.button === 0) {
-            breakStreak();
+        if(target.type==="blue"){
+
+            if(currentWeapon!=="rocket"){
+                breakStreak();
+                return;
+            }
+
+            if(e.button===0){
+
+                hit=true;
+
+                hitTarget(target);
+
+                break;
+
+            }
+
         }
+
     }
+
+    if(!hit && e.button===0)
+        breakStreak();
+
 });
 
-spawnTarget();
-updateHUD();
+function update(){
+
+    for(let t of targets){
+
+        if(Math.random()<0.01){
+
+            t.targetAngle=
+                Math.random()*Math.PI*2;
+
+        }
+
+        t.angle=
+            angleLerp(
+                t.angle,
+                t.targetAngle,
+                0.02
+            );
+
+        t.x+=Math.cos(t.angle)*t.speed;
+        t.y+=Math.sin(t.angle)*t.speed;
+
+        if(t.x<30||t.x>window.innerWidth-30)
+            t.targetAngle=Math.PI-t.angle;
+
+        if(t.y<30||t.y>window.innerHeight-30)
+            t.targetAngle=-t.angle;
+
+        t.div.style.left=(t.x-30)+"px";
+        t.div.style.top=(t.y-30)+"px";
+
+        let scale=
+            1+
+            Math.sin(
+                performance.now()/150
+            )*0.05;
+
+        t.div.style.transform=
+            `scale(${scale})`;
+
+    }
+
+    requestAnimationFrame(update);
+
+}
+
+updateHud();
+update();
 
 </script>
+
 </body>
 </html>
