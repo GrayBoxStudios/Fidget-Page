@@ -123,6 +123,37 @@ document.addEventListener("mousemove",e=>{
     mouseY=e.clientY;
 });
 
+// Apply an area rocket at (cx,cy). Rockets deal 30 damage to blue-layer targets within range.
+function applyRocketAt(cx,cy){
+    const ROCKET_RANGE = 96; // diameter of 3 circles => radius 96
+
+    let anyHit=false;
+
+    for(let t of targets){
+        const d=Math.hypot(t.x-cx,t.y-cy);
+        if(d<=ROCKET_RANGE && t.state==="blue"){
+            anyHit=true;
+            t.hp=Math.max(0,t.hp-30);
+
+            if(t.hp<=0){
+                // full success -> respawn via hit()
+                hit(t);
+            } else {
+                // partial hit feedback
+                spawnParticles(t.x,t.y,"#3aa8ff",12);
+                t.div.classList.add("pulse");
+                setTimeout(()=>t.div.classList.remove("pulse"),120);
+                playSound("rocket_success",260+Math.random()*40);
+            }
+        }
+    }
+
+    if(!anyHit){
+        // miss
+        streak=0; updateHUD(); playSound("fail");
+    }
+}
+
 document.addEventListener("keydown",e=>{
     let k=e.key.toLowerCase();
     if(k==="r"){ currentWeapon="pb"; weaponEl.textContent="🔴 PB"; }
@@ -263,6 +294,7 @@ function createTarget(){
     return{
         div,
         state:"red",    // LAYER: red or blue
+        hp:100,           // health (100 = full)
         x:Math.random()*innerWidth,
         y:Math.random()*innerHeight,
         angle:Math.random()*Math.PI*2,
@@ -279,6 +311,7 @@ for(let i=0;i<10;i++)
 /* ============== HIT LOGIC (LAYER SYSTEM) ============== */
 
 function hit(t){
+    // This function handles "layer success" events (red->blue reveal or blue->respawn)
     score++;
     streak++;
 
@@ -308,17 +341,17 @@ function hit(t){
         t.div.className="target blue";
         t.div.textContent="E";
 
-        // CRITICAL: DO NOT respawn/reposition yet
-        // Same object persists for "layer satisfaction"
+        // keep same object, do not reposition
 
     } else if(t.state==="blue"){
         // BLUE SUCCESS: respawn after full cycle completion
         playSound("rocket_success");
         spawnParticles(t.x,t.y,"#3aa8ff",35);
 
-        // NOW reposition after completing full cycle
+        // reset hp and reposition
         t.state="red";
         t.pbReady=false;
+        t.hp=100;
         t.div.className="target red";
         t.div.textContent="R";
         t.x=Math.random()*innerWidth;
@@ -344,14 +377,22 @@ document.addEventListener("mousedown",e=>{
             // RED LAYER: Requires R pressed + right click preparation
 
             if(e.button===2){
-                // Right click: prepare PB
-                t.pbReady=true;
+                // Right click: prepare PB, only if weapon is PB (global)
+                if(currentWeapon==="pb"){
+                    t.pbReady=true;
+                } else {
+                    streak=0; updateHUD(); playSound("fail");
+                }
                 hitSomething=true;
                 break;
             }
 
             if(e.button===0 && t.pbReady){
-                // Left click after R+right: trigger success
+                // Left click after R+right: apply PB damage (must be on circle)
+                if(currentWeapon!=="pb"){ streak=0; updateHUD(); playSound("fail"); hitSomething=true; break; }
+
+                // PB does 70 damage but also reveals (red->blue)
+                t.hp=Math.max(0,t.hp-70);
                 hit(t);
                 hitSomething=true;
                 break;
@@ -370,18 +411,14 @@ document.addEventListener("mousedown",e=>{
         if(t.state==="blue"){
             // BLUE LAYER: Requires rocket + left click
 
-            if(e.button===0 && currentWeapon==="rocket"){
-                // Correct weapon, correct action
-                hit(t);
-                hitSomething=true;
-                break;
-            }
-
-            if(e.button===0 && currentWeapon!=="rocket"){
-                // Wrong weapon: break streak
-                streak=0;
-                updateHUD();
-                playSound("fail");
+            if(e.button===0){
+                if(currentWeapon==="rocket"){
+                    // Rocket: area damage around click
+                    applyRocketAt(mouseX,mouseY);
+                } else {
+                    // Wrong weapon: break streak
+                    streak=0; updateHUD(); playSound("fail");
+                }
                 hitSomething=true;
                 break;
             }
@@ -416,15 +453,23 @@ function update(){
         t.x+=Math.cos(t.angle)*t.speed;
         t.y+=Math.sin(t.angle)*t.speed;
 
-        // CURSOR AVOIDANCE (soft repulsion, not full flee)
+        // CURSOR AVOIDANCE (soft repulsion, always-on with gentle increase near cursor)
         const AVOID_RADIUS=180;
         const dx=t.x-mouseX;
         const dy=t.y-mouseY;
         const dist=Math.hypot(dx,dy);
 
-        if(dist<AVOID_RADIUS && dist>0){
-            t.x+=dx*0.01;
-            t.y+=dy*0.01;
+        if(dist>0){
+            let nx=dx/dist;
+            let ny=dy/dist;
+            // base gentle repulsion (always applied)
+            let baseRepel=0.6;
+            // additional strength when inside avoid radius
+            let extra=0;
+            if(dist<AVOID_RADIUS) extra=(1-(dist/AVOID_RADIUS))*1.4;
+            let repel=baseRepel+extra;
+            t.x+=nx*repel;
+            t.y+=ny*repel;
         }
 
         // HARD CLAMP (screen boundaries)
