@@ -2,33 +2,32 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>PB Rocket Layer Trainer</title>
+<title>PB Rocket Trainer v2</title>
 
 <style>
 
 body{
     margin:0;
     overflow:hidden;
-    background:#07070a;
-    font-family:Arial;
+    background:#0b0b0b;
+    color:white;
+    font-family:Arial,sans-serif;
     user-select:none;
 }
 
 #hud{
     position:fixed;
-    top:12px;
-    left:12px;
-    color:white;
-    font-size:20px;
+    top:15px;
+    left:15px;
     z-index:1000;
+    font-size:22px;
 }
 
 #weapon{
     position:fixed;
-    top:12px;
-    right:12px;
-    color:white;
-    font-size:22px;
+    top:15px;
+    right:15px;
+    font-size:26px;
 }
 
 #flash{
@@ -39,30 +38,48 @@ body{
     pointer-events:none;
 }
 
-.node{
+.target{
     position:absolute;
-    width:58px;
-    height:58px;
+    width:64px;
+    height:64px;
     border-radius:50%;
     display:flex;
     align-items:center;
     justify-content:center;
+    font-size:22px;
     font-weight:bold;
-    color:white;
     pointer-events:none;
-    transition:filter 0.1s;
+    transform:scale(1);
+    transition:all 0.12s ease-out;
 }
 
-.red{ background:#ff3b3b; box-shadow:0 0 20px #ff3b3b; }
-.blue{ background:#3aa8ff; box-shadow:0 0 20px #3aa8ff; }
+.red{
+    background:#ff3b3b;
+    box-shadow:0 0 18px #ff3b3b;
+}
+
+.blue{
+    background:#3aa8ff;
+    box-shadow:0 0 18px #3aa8ff;
+}
 
 .pulse{
-    animation:pulse 90ms ease-out;
+    animation:pulse 120ms ease-out;
 }
 
 @keyframes pulse{
-    0%{transform:scale(1.8);}
+    0%{transform:scale(1.6);}
     100%{transform:scale(1);}
+}
+
+.particle{
+    position:absolute;
+    width:6px;
+    height:6px;
+    background:white;
+    pointer-events:none;
+    border-radius:50%;
+    opacity:1;
 }
 
 </style>
@@ -90,22 +107,16 @@ let score=0;
 let streak=0;
 let best=parseInt(localStorage.getItem("best")||"0");
 
-let mouseX=innerWidth/2;
-let mouseY=innerHeight/2;
-
-let weapon="pb";
-let pbReady=false;
-
 const scoreEl=document.getElementById("score");
 const streakEl=document.getElementById("streak");
 const bestEl=document.getElementById("best");
 const weaponEl=document.getElementById("weapon");
 
-function update(){
-    scoreEl.textContent=score;
-    streakEl.textContent=streak;
-    bestEl.textContent=best;
-}
+let mouseX=innerWidth/2;
+let mouseY=innerHeight/2;
+
+// GLOBAL WEAPON STATE (never resets per target)
+let currentWeapon="pb";
 
 document.addEventListener("mousemove",e=>{
     mouseX=e.clientX;
@@ -114,58 +125,119 @@ document.addEventListener("mousemove",e=>{
 
 document.addEventListener("keydown",e=>{
     let k=e.key.toLowerCase();
-    if(k==="r"){ weapon="pb"; weaponEl.textContent="PB"; }
-    if(k==="e"){ weapon="rocket"; weaponEl.textContent="ROCKET"; }
+    if(k==="r"){ currentWeapon="pb"; weaponEl.textContent="🔴 PB"; }
+    if(k==="e"){ currentWeapon="rocket"; weaponEl.textContent="🚀 ROCKET"; }
 });
 
-function shake(p){
+function updateHUD(){
+    scoreEl.textContent=score;
+    streakEl.textContent=streak;
+    bestEl.textContent=best;
+}
+
+function screenShake(p){
     document.body.animate([
         {transform:`translate(${p}px,0)`},
         {transform:`translate(${-p}px,0)`},
         {transform:`translate(0,0)`}
-    ],{duration:55});
+    ],{duration:60});
 }
 
-function flash(){
+function flashScreen(){
     flash.animate([
-        {opacity:0.4},
+        {opacity:0.35},
         {opacity:0}
     ],{duration:80});
 }
 
-function hitstop(){
-    document.body.style.filter="brightness(2)";
-    setTimeout(()=>document.body.style.filter="none",40);
+/* ============== AUDIO SYSTEM (UPGRADED) ============== */
+function playSound(type,frequency=null){
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const o=ctx.createOscillator();
+    const g=ctx.createGain();
+
+    o.connect(g);
+    g.connect(ctx.destination);
+
+    if(frequency===null){
+        if(type==="pb_success"){
+            frequency=120+Math.random()*60;
+        } else if(type==="rocket_success"){
+            frequency=250+Math.random()*150;
+        } else {
+            frequency=90;
+        }
+    }
+
+    o.frequency.value=frequency;
+
+    g.gain.setValueAtTime(0.15,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.08);
+
+    o.start();
+    o.stop(ctx.currentTime+0.08);
 }
 
-function particles(x,y,color){
-    for(let i=0;i<26;i++){
+/* ============== PARTICLES (AMPLIFIED) ============== */
+function spawnParticles(x,y,color,count=35){
+
+    // Inner fast burst
+    for(let i=0;i<count;i++){
         const p=document.createElement("div");
-        p.style.position="absolute";
-        p.style.width="5px";
-        p.style.height="5px";
-        p.style.borderRadius="50%";
-        p.style.background=color;
+        p.className="particle";
         p.style.left=x+"px";
         p.style.top=y+"px";
+        p.style.background=color;
         document.body.appendChild(p);
 
-        let a=Math.random()*Math.PI*2;
-        let s=2+Math.random()*5;
+        let angle=Math.random()*Math.PI*2;
+        let speed=3+Math.random()*6;
 
-        let vx=Math.cos(a)*s;
-        let vy=Math.sin(a)*s;
+        let vx=Math.cos(angle)*speed;
+        let vy=Math.sin(angle)*speed;
 
-        let life=500;
-
+        let life=450+Math.random()*250;
         let start=performance.now();
 
         function anim(t){
             let dt=t-start;
+            p.style.left=(x+vx*dt/10)+"px";
+            p.style.top=(y+vy*dt/10)+"px";
+            p.style.opacity=Math.max(0,1-(dt/life));
 
-            p.style.left=(x+vx*dt/8)+"px";
-            p.style.top=(y+vy*dt/8)+"px";
-            p.style.opacity=1-dt/life;
+            if(dt<life)
+                requestAnimationFrame(anim);
+            else
+                p.remove();
+        }
+
+        requestAnimationFrame(anim);
+    }
+
+    // Outer slow drift ring (additional layer)
+    for(let i=0;i<12;i++){
+        const p=document.createElement("div");
+        p.className="particle";
+        p.style.left=x+"px";
+        p.style.top=y+"px";
+        p.style.background=color;
+        p.style.opacity="0.6";
+        document.body.appendChild(p);
+
+        let angle=Math.random()*Math.PI*2;
+        let speed=0.8+Math.random()*1.2;
+
+        let vx=Math.cos(angle)*speed;
+        let vy=Math.sin(angle)*speed;
+
+        let life=800+Math.random()*400;
+        let start=performance.now();
+
+        function anim(t){
+            let dt=t-start;
+            p.style.left=(x+vx*dt/10)+"px";
+            p.style.top=(y+vy*dt/10)+"px";
+            p.style.opacity=Math.max(0,0.6-(dt/life*0.6));
 
             if(dt<life)
                 requestAnimationFrame(anim);
@@ -177,185 +249,204 @@ function particles(x,y,color){
     }
 }
 
-/* ---------------- LAYERS ---------------- */
+/* ============== TARGETS (LAYER SYSTEM) ============== */
+let targets=[];
 
-class Node{
+function createTarget(){
+    const div=document.createElement("div");
 
-    constructor(){
-        this.x=Math.random()*innerWidth;
-        this.y=Math.random()*innerHeight;
+    div.className="target red";
+    div.textContent="R";
 
-        this.vx=0;
-        this.vy=0;
+    document.body.appendChild(div);
 
-        this.state="red"; // red → blue → dead
-
-        this.el=document.createElement("div");
-        this.el.className="node red";
-        this.el.textContent="R";
-
-        document.body.appendChild(this.el);
-    }
-
-    flee(){
-
-        let dx=this.x-mouseX;
-        let dy=this.y-mouseY;
-
-        let dist=Math.hypot(dx,dy);
-
-        if(dist<180){
-            this.vx+=dx*0.02;
-            this.vy+=dy*0.02;
-        }
-
-    }
-
-    update(){
-
-        this.flee();
-
-        this.vx*=0.92;
-        this.vy*=0.92;
-
-        this.x+=this.vx;
-        this.y+=this.vy;
-
-        this.x=Math.max(30,Math.min(innerWidth-30,this.x));
-        this.y=Math.max(30,Math.min(innerHeight-30,this.y));
-
-        this.el.style.left=(this.x-30)+"px";
-        this.el.style.top=(this.y-30)+"px";
-
-    }
-
-    render(){
-        this.el.style.transform=
-            `scale(${1+Math.sin(performance.now()/200)*0.03})`;
-    }
-
-    upgrade(){
-        this.state="blue";
-        this.el.className="node blue pulse";
-        this.el.textContent="E";
-    }
-
-    destroy(){
-        this.el.remove();
-    }
+    return{
+        div,
+        state:"red",    // LAYER: red or blue
+        x:Math.random()*innerWidth,
+        y:Math.random()*innerHeight,
+        angle:Math.random()*Math.PI*2,
+        targetAngle:Math.random()*Math.PI*2,
+        speed:1.2+Math.random()*1.8,
+        pbReady:false   // For red layer: did user press R before clicking?
+    };
 }
 
-/* ---------------- WORLD ---------------- */
-
-let nodes=[];
-
+// CREATE 10 TARGETS (doubled density)
 for(let i=0;i<10;i++)
-    nodes.push(new Node());
+    targets.push(createTarget());
 
-function spawnNode(){
-    nodes.push(new Node());
+/* ============== HIT LOGIC (LAYER SYSTEM) ============== */
+
+function hit(t){
+    score++;
+    streak++;
+
+    if(streak>best){
+        best=streak;
+        localStorage.setItem("best",best);
+    }
+
+    updateHUD();
+
+    // FLOW REINFORCEMENT: combo multiplier screen shake
+    const shakeAmount=Math.min(5+streak*0.1,20);
+    screenShake(shakeAmount);
+    flashScreen();
+
+    // Pulse effect on hit
+    t.div.classList.add("pulse");
+    setTimeout(()=>t.div.classList.remove("pulse"),120);
+
+    if(t.state==="red"){
+        // RED SUCCESS: transition to BLUE (same object, layer reveal)
+        playSound("pb_success");
+        spawnParticles(t.x,t.y,"#ff3b3b",35);
+
+        t.state="blue";
+        t.pbReady=false;
+        t.div.className="target blue";
+        t.div.textContent="E";
+
+        // CRITICAL: DO NOT respawn/reposition yet
+        // Same object persists for "layer satisfaction"
+
+    } else if(t.state==="blue"){
+        // BLUE SUCCESS: respawn after full cycle completion
+        playSound("rocket_success");
+        spawnParticles(t.x,t.y,"#3aa8ff",35);
+
+        // NOW reposition after completing full cycle
+        t.state="red";
+        t.pbReady=false;
+        t.div.className="target red";
+        t.div.textContent="R";
+        t.x=Math.random()*innerWidth;
+        t.y=Math.random()*innerHeight;
+    }
 }
 
-/* ---------------- INPUT ---------------- */
+/* ============== INPUT HANDLER ============== */
 
 document.addEventListener("mousedown",e=>{
 
-    let hit=false;
+    let hitSomething=false;
 
-    for(let n of nodes){
+    for(let t of targets){
 
-        let dx=mouseX-n.x;
-        let dy=mouseY-n.y;
-        let d=Math.hypot(dx,dy);
+        let dx=mouseX-t.x;
+        let dy=mouseY-t.y;
+        let dist=Math.hypot(dx,dy);
 
-        if(d>34) continue;
+        if(dist>32) continue;
 
-        // RED PHASE
-        if(n.state==="red"){
-
-            if(weapon!=="pb"){
-                streak=0; update(); return;
-            }
+        if(t.state==="red"){
+            // RED LAYER: Requires R pressed + right click preparation
 
             if(e.button===2){
-                pbReady=true;
-                return;
+                // Right click: prepare PB
+                t.pbReady=true;
+                hitSomething=true;
+                break;
             }
 
-            if(e.button===0 && pbReady){
+            if(e.button===0 && t.pbReady){
+                // Left click after R+right: trigger success
+                hit(t);
+                hitSomething=true;
+                break;
+            }
 
-                n.upgrade();
-
-                pbReady=false;
-
-                score++;
-                streak++;
-
-                hit=true;
-
+            if(e.button===0 && !t.pbReady){
+                // Left click without prep: break streak
+                streak=0;
+                updateHUD();
+                playSound("fail");
+                hitSomething=true;
                 break;
             }
         }
 
-        // BLUE PHASE
-        else if(n.state==="blue"){
+        if(t.state==="blue"){
+            // BLUE LAYER: Requires rocket + left click
 
-            if(weapon!=="rocket"){
-                streak=0; update(); return;
+            if(e.button===0 && currentWeapon==="rocket"){
+                // Correct weapon, correct action
+                hit(t);
+                hitSomething=true;
+                break;
             }
 
-            if(e.button===0){
-
-                n.destroy();
-                nodes=nodes.filter(x=>x!==n);
-
-                nodes.push(new Node());
-
-                score++;
-                streak++;
-
-                hit=true;
-
+            if(e.button===0 && currentWeapon!=="rocket"){
+                // Wrong weapon: break streak
+                streak=0;
+                updateHUD();
+                playSound("fail");
+                hitSomething=true;
                 break;
             }
         }
     }
 
-    if(hit){
-
-        if(streak>best){
-            best=streak;
-            localStorage.setItem("best",best);
-        }
-
-        update();
-
-        shake(6+Math.min(streak*0.1,18));
-        flash();
-        hitstop();
-
-    } else if(e.button===0){
-
+    if(!hitSomething && e.button===0){
         streak=0;
-        update();
+        updateHUD();
+        playSound("fail");
     }
-
 });
 
-/* ---------------- LOOP ---------------- */
+/* ============== MOVEMENT (CURSOR AVOIDANCE) ============== */
 
-function loop(){
-
-    for(let n of nodes){
-        n.update();
-        n.render();
-    }
-
-    requestAnimationFrame(loop);
+function angleLerp(a,b,t){
+    let d=((b-a+Math.PI*3)%(Math.PI*2))-Math.PI;
+    return a+d*t;
 }
 
+function update(){
+
+    for(let t of targets){
+
+        // RANDOM WANDER
+        if(Math.random()<0.015)
+            t.targetAngle=Math.random()*Math.PI*2;
+
+        t.angle=angleLerp(t.angle,t.targetAngle,0.02);
+
+        // APPLY WANDER MOTION
+        t.x+=Math.cos(t.angle)*t.speed;
+        t.y+=Math.sin(t.angle)*t.speed;
+
+        // CURSOR AVOIDANCE (soft repulsion, not full flee)
+        const AVOID_RADIUS=180;
+        const dx=t.x-mouseX;
+        const dy=t.y-mouseY;
+        const dist=Math.hypot(dx,dy);
+
+        if(dist<AVOID_RADIUS && dist>0){
+            t.x+=dx*0.01;
+            t.y+=dy*0.01;
+        }
+
+        // HARD CLAMP (screen boundaries)
+        t.x=Math.max(32,Math.min(innerWidth-32,t.x));
+        t.y=Math.max(32,Math.min(innerHeight-32,t.y));
+
+        if(t.x<=32||t.x>=innerWidth-32)
+            t.targetAngle=Math.PI-t.angle;
+
+        if(t.y<=32||t.y>=innerHeight-32)
+            t.targetAngle=-t.angle;
+
+        t.div.style.left=(t.x-32)+"px";
+        t.div.style.top=(t.y-32)+"px";
+
+    }
+
+    requestAnimationFrame(update);
+}
+
+updateHUD();
 update();
-loop();
 
 </script>
 
